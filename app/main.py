@@ -1,11 +1,11 @@
 from fastapi import FastAPI
-from app import api_routes
+from app.api_routes import router as api_router
 
 app = FastAPI()
 
-app.include_router(api_routes.router)
+app.include_router(api_router)
 
 
 @app.get("/")
 def root():
-    return {"message": "Preference Place Recommender API is running!"}
+    return {"message": "Nearby Place Recommender is running"}
