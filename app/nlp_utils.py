@@ -19,7 +19,16 @@ def extract_reviews_from_json(path):
     cleaned_reviews = []
 
     for review in reviews:
-        text = review.get("text", "")
+        text_raw = review.get("text", "")
+
+        # Handle both new format and fallback
+        if isinstance(text_raw, dict):
+            text = text_raw.get("text", "")
+        elif isinstance(text_raw, str):
+            text = text_raw
+        else:
+            text = ""
+
         cleaned = clean_review_text(text)
         if cleaned:
             cleaned_reviews.append(cleaned)
@@ -28,6 +37,9 @@ def extract_reviews_from_json(path):
 
 
 def get_top_keywords(review_texts, top_k=5):
+    if not review_texts:
+        return []
+
     vectorizer = TfidfVectorizer(stop_words="english")
     X = vectorizer.fit_transform(review_texts)
     summed = X.sum(axis=0)

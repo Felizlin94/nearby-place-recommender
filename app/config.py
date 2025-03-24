@@ -10,4 +10,4 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 if not GOOGLE_API_KEY:
     raise ValueError("GOOGLE_MAPS_API_KEY not found in .env file!")
 
-print("GOOGLE_API_KEY loaded: Loaded")
+# print("GOOGLE_API_KEY loaded: Loaded")
