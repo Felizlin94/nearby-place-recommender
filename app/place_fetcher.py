@@ -8,11 +8,7 @@ def search_nearby_places(lat, lng, radius=800, place_type="restaurant", max_resu
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": GOOGLE_API_KEY,
-        "X-Goog-FieldMask": (
-            "places.id"
-            # "places.location,places.rating,places.userRatingCount,"
-            # "places.primaryType,places.priceLevel"
-        ),
+        "X-Goog-FieldMask": ("places.id"),
     }
 
     body = {
@@ -36,16 +32,20 @@ def search_nearby_places(lat, lng, radius=800, place_type="restaurant", max_resu
     return response.json()
 
 
-def get_place_details(place_id):
+def get_place_details(place_id, lang="zh-TW"):
     url = f"https://places.googleapis.com/v1/places/{place_id}"
 
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": GOOGLE_API_KEY,
         "X-Goog-FieldMask": (
-            # "id,displayName,formattedAddress,rating,userRatingCount,reviews"
-            "id,displayName"
+            "id,displayName,formattedAddress,rating,userRatingCount,types,googleMapsUri,priceRange,"
+            "allowsDogs,delivery,dineIn,goodForChildren,goodForGroups,goodForWatchingSports,menuForChildren,"
+            "liveMusic,parkingOptions,paymentOptions,outdoorSeating,reservable,restroom,takeout,servesBeer,"
+            "servesBreakfast,servesBrunch,servesCocktails,servesCoffee,servesDessert,servesDinner,servesLunch,"
+            "servesVegetarianFood,servesWine,currentOpeningHours,editorialSummary,reviews"
         ),
+        "Accept-Language": lang,
     }
 
     response = requests.get(url, headers=headers)

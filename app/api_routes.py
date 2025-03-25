@@ -14,6 +14,7 @@ def fetch_reviews(
     radius: int = Query(800, description="Search radius in meters"),
     place_type: str = Query("restaurant", description="Type of place to search"),
     max_results: int = Query(20, description="Max number of places to fetch (max 20)"),
+    lang: str = Query("zh-TW", description="Preferred language (e.g. zh-TW, ja, en)"),
 ):
     data = search_nearby_places(lat, lng, radius, place_type, max_results)
     places = data.get("places", [])
@@ -22,7 +23,7 @@ def fetch_reviews(
     for place in places:
         place_id = place.get("id")
         if place_id:
-            details = get_place_details(place_id)
+            details = get_place_details(place_id, lang=lang)
             filename = f"{place_id}.json"
             save_raw_json(details, filename)
             saved_files.append(filename)
