@@ -1,83 +1,121 @@
 from fastapi import APIRouter, Query
 from app.place_fetcher import search_nearby_places, get_place_details, geocode_address
-from app.utils import save_raw_json
-import json
-import os
+from app.langchain_recommender import recommend_from_raw_places
+from app.utils import save_raw_json, log_ingestion
+from typing import Optional, Tuple, List, Dict
 
 router = APIRouter()
 
 
-@router.get("/fetch-reviews")
-def fetch_reviews(
-    lat: float = Query(..., description="Latitude of the location"),
-    lng: float = Query(..., description="Longitude of the location"),
-    radius: int = Query(800, description="Search radius in meters"),
-    place_type: str = Query("restaurant", description="Type of place to search"),
-    max_results: int = Query(20, description="Max number of places to fetch (max 20)"),
-    lang: str = Query("zh-TW", description="Preferred language (e.g. zh-TW, ja, en)"),
-):
-    data = search_nearby_places(lat, lng, radius, place_type, max_results)
+def get_detailed_places(
+    location_name: Optional[str],
+    lat: Optional[float],
+    lng: Optional[float],
+    radius: int,
+    place_type: str,
+    max_results: int,
+    lang: str,
+) -> Tuple[List[Dict], Optional[str], Optional[str]]:
+    if location_name and (lat is None or lng is None):
+        lat, lng = geocode_address(location_name)
+        if lat is None or lng is None:
+            return [], None, f"Failed to geocode '{location_name}'."
+
+    if lat is None or lng is None:
+        return [], None, "Please provide either lat/lng or location_name."
+
+    data = search_nearby_places(lat, lng, radius, place_type, max_results, lang)
     places = data.get("places", [])
-    saved_files = []
+    detailed_places = []
 
     for place in places:
         place_id = place.get("id")
         if place_id:
             details = get_place_details(place_id, lang=lang)
+            if details:
+                detailed_places.append(details)
+
+    return detailed_places, f"{lat},{lng}", None
+
+
+@router.get("/fetch-reviews")
+def fetch_reviews(
+    location_name: str = Query(
+        None, description="Optional place name (e.g. 'Shinjuku Station')"
+    ),
+    lat: float = Query(None, description="Latitude of location"),
+    lng: float = Query(None, description="Longitude of location"),
+    radius: int = Query(800, description="Search radius in meters"),
+    place_type: str = Query("restaurant", description="Type of place to search"),
+    max_results: int = Query(20, description="Max number of places to fetch"),
+    lang: str = Query("zh-TW", description="Preferred language (e.g. zh-TW, ja, en)"),
+):
+    detailed_places, resolved_location, error = get_detailed_places(
+        location_name, lat, lng, radius, place_type, max_results, lang
+    )
+
+    if error:
+        return {"error": error}
+
+    saved_files = []
+    for place in detailed_places:
+        place_id = place.get("id")
+        if place_id:
             filename = f"{place_id}.json"
-            save_raw_json(details, filename)
+            save_raw_json(place, filename)
             saved_files.append(filename)
+
+    log_ingestion(
+        {
+            "route": "/fetch-reviews",
+            "location": location_name or resolved_location,
+            "file_count": len(saved_files),
+            "files": saved_files,
+        }
+    )
 
     return {
         "message": f"{len(saved_files)} places fetched and saved.",
+        "location": location_name or resolved_location,
         "files": saved_files,
     }
 
 
 @router.get("/recommend")
 def recommend(
-    location_name: str = Query(
-        None, description="Optional location name (e.g., 'Akihabara Station')"
+    location_name: str = Query(..., description="Place name (e.g. 'Shinjuku Station')"),
+    query: str = Query(
+        ..., description="User query (e.g. 'spicy ramen outdoor seating')"
     ),
-    lat: float = Query(None, description="Latitude of center location"),
-    lng: float = Query(None, description="Longitude of center location"),
-    vibe: str = Query(None, description="Optional vibe keyword to filter places"),
+    radius: int = Query(800, description="Search radius in meters"),
+    place_type: str = Query("restaurant", description="Type of place to search"),
+    max_results: int = Query(20, description="Max number of places to fetch"),
+    lang: str = Query("zh-TW", description="Preferred language (e.g. zh-TW, ja, en)"),
 ):
-    # Step 1: Handle location_name → lat/lng
-    if location_name and (lat is None or lng is None):
-        lat, lng = geocode_address(location_name)
+    detailed_places, resolved_location, error = get_detailed_places(
+        location_name, None, None, radius, place_type, max_results, lang
+    )
 
-    # Step 2: Load summaries (already nearby)
-    filepath = "data/processed/review_summaries.json"
-    if not os.path.exists(filepath):
-        return {"message": "Summary file not found."}
+    if error:
+        return {"error": error}
 
-    with open(filepath, "r", encoding="utf-8") as f:
-        summaries = json.load(f)
+    if not detailed_places:
+        return {"error": "No detailed places fetched."}
 
-    filtered = []
+    result = recommend_from_raw_places(query, detailed_places, lang=lang)
 
-    for place in summaries:
-        score = 0
+    log_ingestion(
+        {
+            "route": "/recommend",
+            "location": location_name,
+            "query": query,
+            "file_count": len(detailed_places),
+            "result": result,
+        }
+    )
 
-        # Step 3: Vibe matching
-        if vibe:
-            vibe = vibe.lower()
-            if vibe in place.get("vibe", "").lower():
-                score += 1
-            score += sum(
-                1 for kw in place.get("top_keywords", []) if vibe in kw.lower()
-            )
-
-            if score == 0:
-                continue
-
-        # Add to result
-        place_copy = place.copy()
-        place_copy["match_score"] = score
-        filtered.append(place_copy)
-
-    # Sort by match_score
-    filtered.sort(key=lambda x: x.get("match_score", 0), reverse=True)
-
-    return filtered
+    return {
+        "location": location_name,
+        "query": query,
+        "result": result,
+    }
